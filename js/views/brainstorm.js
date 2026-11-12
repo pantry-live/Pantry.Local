@@ -13,12 +13,23 @@ import {
 import * as store from "../store.js";
 
 let activeController = null;
+let mountedRoot = null;   // the screen Brainstorm is currently drawn on
+let pendingResult = null; // { answers, recipe } waiting to be shown
 
 export function render(root) {
-  if (hasConnection()) {
-    renderReady(root);
-  } else {
+  mountedRoot = root;
+
+  if (!hasConnection()) {
     renderIntro(root);
+    return;
+  }
+
+  if (activeController) {
+    renderLoading(root, activeController);
+  } else if (pendingResult) {
+    renderResult(root, pendingResult.answers, pendingResult.recipe);
+  } else {
+    renderReady(root);
   }
 }
 
@@ -834,11 +845,13 @@ function renderResult(root, answers, recipe) {
   });
 
   root.querySelector('[data-action="retry"]')?.addEventListener("click", () => {
+    pendingResult = null;
     openWizard(root, answers);
   });
 
   root.querySelectorAll('[data-action="reject"]').forEach((button) => {
     button.addEventListener("click", () => {
+      pendingResult = null;
       renderReady(root);
     });
   });
@@ -889,6 +902,7 @@ function addRecipeToPantry(root, recipe, button) {
   }
 
   toast(t("brainstorm.addedToast"), "success");
+  pendingResult = null;
   renderReady(root);
 }
 
@@ -904,10 +918,11 @@ async function runGeneration(root, answers) {
       signal: controller.signal
     });
     if (controller.signal.aborted) return;
-    renderResult(root, answers, recipe);
+    pendingResult = { answers, recipe };
+    if (mountedRoot?.isConnected) renderResult(mountedRoot, answers, recipe);
   } catch (error) {
     if (controller.signal.aborted || error?.code === "aborted") return;
-    renderGenerationError(root, answers, error);
+    if (mountedRoot?.isConnected) renderGenerationError(mountedRoot, answers, error);
   } finally {
     if (activeController === controller) activeController = null;
   }
