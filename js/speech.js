@@ -95,6 +95,12 @@ export function createSpeechController({
 
       if (transcriptMatches(transcript, commands)) {
         cooldownUntil = Date.now() + 900;
+        // End this session so the next phrase starts with an empty result list.
+        try {
+          instance.abort();
+        } catch {
+          /* already stopped */
+        }
         try {
           onCommand?.();
         } catch (error) {
