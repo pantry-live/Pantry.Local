@@ -148,6 +148,10 @@ function openSetup(root) {
         ? "brainstorm.setupCodeTitle"
         : "brainstorm.setupPasteTitle";
 
+  const studioSteps = [1, 2, 3, 4, 5]
+    .map((n) => `<li>${escapeHtml(t(`brainstorm.setupStudio${n}`))}</li>`)
+    .join("");
+
     const content = step === 1
       ? `
         <p class="wizard__text">${escapeHtml(t("brainstorm.setupNeedText"))}</p>
@@ -165,6 +169,7 @@ function openSetup(root) {
       : step === 2
         ? `
           <p class="wizard__text">${escapeHtml(t("brainstorm.setupCodeText"))}</p>
+          <ol class="brainstorm-steps">${studioSteps}</ol>
           <a class="button button--secondary" href="https://aistudio.google.com/app/apikey"
              target="_blank" rel="noopener">
             ${escapeHtml(t("brainstorm.setupOpenStudio"))}

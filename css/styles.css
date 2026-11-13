@@ -456,12 +456,12 @@ a {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 11px 18px;
+  padding: 13px 18px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-contrast);
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 650;
   line-height: 1.2;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
@@ -2158,6 +2158,34 @@ a {
   color: var(--text-muted);
   font-size: 14px;
   line-height: 1.55;
+}
+
+.brainstorm-steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 0 0 16px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.brainstorm-steps li {
+  position: relative;
+  counter-increment: step;
+  padding-left: 1.6em;
+}
+
+.brainstorm-steps li + li {
+  margin-top: 6px;
+}
+
+.brainstorm-steps li::before {
+  content: counter(step) ".";
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+  font-weight: 650;
 }
 
 .wizard__actions {
