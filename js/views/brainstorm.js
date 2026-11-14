@@ -1,256 +1,18 @@
 /*
  * Pantry — Brainstorm tab view.
+ *
+ * The wizard builds a prompt. The user copies it into an AI chat, then pastes
+ * the reply back so the app can parse it and save it to Pantry.
  */
 
 import { getLanguageMeta, t } from "../i18n.js";
-import { escapeHtml, icon, openModal, toast } from "../ui.js";
-import { openManual } from "../manual.js";
-import {
-  generateRecipe,
-  hasConnection,
-  saveConnectionCode
-} from "../brainstorm-api.js";
+import { escapeHtml, icon, toast } from "../ui.js";
+import { parseRecipeText } from "../importer.js";
+import { buildChatPrompt, stripCodeFences } from "../brainstorm-prompt.js";
 import * as store from "../store.js";
 
-let activeController = null;
-let mountedRoot = null;   // the screen Brainstorm is currently drawn on
-let pendingResult = null; // { answers, recipe } waiting to be shown
-
 export function render(root) {
-  mountedRoot = root;
-
-  if (!hasConnection()) {
-    renderIntro(root);
-    return;
-  }
-
-  if (activeController) {
-    renderLoading(root, activeController);
-  } else if (pendingResult) {
-    renderResult(root, pendingResult.answers, pendingResult.recipe);
-  } else {
-    renderReady(root);
-  }
-}
-
-/* ------------------------------- Intro ---------------------------------- */
-
-function renderIntro(root) {
-  root.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">${escapeHtml(t("brainstorm.title"))}</h1>
-      <span class="badge badge--optional">${escapeHtml(t("brainstorm.optionalBadge"))}</span>
-    </div>
-
-    <section class="brainstorm-card">
-      <div class="brainstorm-card__icon" aria-hidden="true">${icon("bulb")}</div>
-      <div class="brainstorm-card__body">
-        <h2 class="brainstorm-card__title">${escapeHtml(t("brainstorm.introTitle"))}</h2>
-        <p class="brainstorm-card__text">${escapeHtml(t("brainstorm.introText"))}</p>
-
-        <ul class="brainstorm-points">
-          <li class="brainstorm-point">
-            ${icon("check")}
-            <span>${escapeHtml(t("brainstorm.introPointOptional"))}</span>
-          </li>
-          <li class="brainstorm-point">
-            ${icon("check")}
-            <span>${escapeHtml(t("brainstorm.introPointPrivacy"))}</span>
-          </li>
-          <li class="brainstorm-point">
-            ${icon("check")}
-            <span>${escapeHtml(t("brainstorm.introPointDisconnect"))}</span>
-          </li>
-        </ul>
-
-        <div class="brainstorm-actions">
-          <button class="button" type="button" data-action="setup">
-            ${escapeHtml(t("brainstorm.setupBtn"))}
-          </button>
-          <button class="link-button" type="button" data-action="manual">
-            ${escapeHtml(t("brainstorm.howItWorks"))}
-          </button>
-        </div>
-        <p class="brainstorm-note">${escapeHtml(t("brainstorm.setupTime"))}</p>
-      </div>
-    </section>
-  `;
-
-  root.querySelector('[data-action="setup"]')?.addEventListener("click", () => {
-    openSetup(root);
-  });
-
-  root.querySelector('[data-action="manual"]')?.addEventListener("click", () => {
-    openManual("brainstorm");
-  });
-}
-
-/* ---------------------------- Setup wizard ------------------------------ */
-
-function openSetup(root) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "brainstorm-setup";
-
-  const modal = openModal({
-    title: "",
-    body: wrapper,
-    actions: []
-  });
-
-  modal.modal?.removeAttribute("aria-labelledby");
-  modal.modal?.setAttribute("aria-label", t("brainstorm.setupTitle"));
-
-  const totalSteps = 3;
-  let step = 1;
-  let codeValue = "";
-
-  const showError = (message) => {
-    const error = wrapper.querySelector('[data-ref="error"]');
-    if (!error) return;
-    error.textContent = message;
-    error.hidden = false;
-  };
-
-  const save = () => {
-    const input = wrapper.querySelector('[data-ref="code"]');
-    const code = String(input?.value || codeValue || "").trim();
-
-    if (!code) {
-      showError(t("brainstorm.setupEmpty"));
-      input?.focus();
-      return;
-    }
-
-    if (!saveConnectionCode(code)) {
-      showError(t("common.error"));
-      return;
-    }
-
-    modal.close();
-    toast(t("brainstorm.setupSaved"), "success");
-    renderReady(root);
-  };
-
-  const next = () => {
-    if (step < totalSteps) {
-      step += 1;
-      renderStep();
-      return;
-    }
-    save();
-  };
-
-  const renderStep = () => {
-    const isLast = step === totalSteps;
-    const titleKey = step === 1
-      ? "brainstorm.setupNeedTitle"
-      : step === 2
-        ? "brainstorm.setupCodeTitle"
-        : "brainstorm.setupPasteTitle";
-
-  const studioSteps = [1, 2, 3, 4, 5]
-    .map((n) => `<li>${escapeHtml(t(`brainstorm.setupStudio${n}`))}</li>`)
-    .join("");
-
-    const content = step === 1
-      ? `
-        <p class="wizard__text">${escapeHtml(t("brainstorm.setupNeedText"))}</p>
-        <ul class="brainstorm-points">
-          <li class="brainstorm-point">
-            ${icon("check")}
-            <span>${escapeHtml(t("brainstorm.setupNeedPointTime"))}</span>
-          </li>
-          <li class="brainstorm-point">
-            ${icon("check")}
-            <span>${escapeHtml(t("brainstorm.setupNeedPointLocal"))}</span>
-          </li>
-        </ul>
-      `
-      : step === 2
-        ? `
-          <p class="wizard__text">${escapeHtml(t("brainstorm.setupCodeText"))}</p>
-          <ol class="brainstorm-steps">${studioSteps}</ol>
-          <a class="button button--secondary" href="https://aistudio.google.com/app/apikey"
-             target="_blank" rel="noopener">
-            ${escapeHtml(t("brainstorm.setupOpenStudio"))}
-          </a>
-          <p class="field__hint">${escapeHtml(t("brainstorm.introPointPrivacy"))}</p>
-        `
-        : `
-          <p class="wizard__text">${escapeHtml(t("brainstorm.setupPasteText"))}</p>
-          <label class="field">
-            <span class="field__label">${escapeHtml(t("brainstorm.setupCodeLabel"))}</span>
-            <input class="input" type="password" data-ref="code" autocomplete="off"
-                   spellcheck="false" placeholder="${escapeHtml(t("brainstorm.keyPlaceholder"))}"
-                   value="${escapeHtml(codeValue)}">
-          </label>
-          <p class="field__hint">${escapeHtml(t("brainstorm.introPointPrivacy"))}</p>
-        `;
-
-    wrapper.innerHTML = `
-      <div class="wizard__head">
-        <div>
-          <p class="wizard__progress">
-            ${escapeHtml(t("brainstorm.setupStepCounter", { current: step, total: totalSteps }))}
-          </p>
-          <h2 class="wizard__title" tabindex="-1" data-ref="title">
-            ${escapeHtml(t(titleKey))}
-          </h2>
-        </div>
-        <button class="icon-button" type="button" data-action="close"
-                aria-label="${escapeHtml(t("common.close"))}">
-          ${icon("close")}
-        </button>
-      </div>
-
-      ${content}
-
-      <p class="form-error" data-ref="error" role="alert" hidden></p>
-
-      <div class="wizard__actions">
-        <button class="button button--secondary" type="button" data-action="back">
-          ${escapeHtml(step === 1 ? t("common.cancel") : t("common.back"))}
-        </button>
-        <button class="button" type="button" data-action="next">
-          ${escapeHtml(isLast ? t("brainstorm.connectBtn") : t("common.continue"))}
-        </button>
-      </div>
-    `;
-
-    const input = wrapper.querySelector('[data-ref="code"]');
-
-    if (input) {
-      input.addEventListener("input", () => {
-        codeValue = input.value;
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          next();
-        }
-      });
-    }
-
-    wrapper.querySelector('[data-action="close"]')?.addEventListener("click", () => {
-      modal.close();
-    });
-
-    wrapper.querySelector('[data-action="back"]')?.addEventListener("click", () => {
-      if (step === 1) {
-        modal.close();
-        return;
-      }
-      step -= 1;
-      renderStep();
-    });
-
-    wrapper.querySelector('[data-action="next"]')?.addEventListener("click", next);
-
-    const focusTarget = input || wrapper.querySelector('[data-ref="title"]');
-    window.requestAnimationFrame(() => focusTarget?.focus());
-  };
-
-  renderStep();
+  renderReady(root);
 }
 
 /* ------------------------------- Ready ---------------------------------- */
@@ -694,18 +456,7 @@ function bindQuestion(root, step, answers, goNext) {
   }
 }
 
-/* ------------------------- Generation and result ------------------------- */
-
-const GENERATION_ERROR_KEYS = {
-  invalidKey: "brainstorm.errorInvalidKey",
-  permission: "brainstorm.errorPermission",
-  rateLimit: "brainstorm.errorRateLimit",
-  modelUnavailable: "brainstorm.errorModelUnavailable",
-  request: "brainstorm.errorRequest",
-  server: "brainstorm.errorServer",
-  network: "brainstorm.errorNetwork",
-  malformed: "brainstorm.errorMalformed"
-};
+/* ------------------------- Prompt and result ---------------------------- */
 
 function recipeLines(value) {
   return String(value || "")
@@ -714,13 +465,47 @@ function recipeLines(value) {
     .filter(Boolean);
 }
 
-function renderLoading(root, controller) {
+function renderPreview(recipe) {
+  const ingredients = recipeLines(recipe.ingredients);
+  const steps = recipeLines(recipe.steps);
+
+  return `
+    <section class="prompt-preview" aria-live="polite">
+      <h2 class="prompt-preview__title">${escapeHtml(t("brainstorm.previewTitle"))}</h2>
+      <div>
+        <h3 class="brainstorm-result__title">${escapeHtml(recipe.title)}</h3>
+        <p class="brainstorm-result__meta">
+          ${escapeHtml(recipe.category || t("brainstorm.previewNoCategory"))} ·
+          ${escapeHtml(recipe.subcategory || t("brainstorm.previewNoSubcategory"))}
+        </p>
+      </div>
+
+      <div class="brainstorm-result__section">
+        <h3 class="brainstorm-result__heading">${escapeHtml(t("brainstorm.ingredientsLabel"))}</h3>
+        <ul class="brainstorm-result__list">
+          ${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
+        </ul>
+      </div>
+
+      <div class="brainstorm-result__section">
+        <h3 class="brainstorm-result__heading">${escapeHtml(t("brainstorm.stepsLabel"))}</h3>
+        <ol class="brainstorm-result__list">
+          ${steps.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
+        </ol>
+      </div>
+    </section>
+  `;
+}
+
+function renderPrompt(root, answers) {
+  const prompt = buildChatPrompt(answers, store.getCategories());
+
   root.innerHTML = `
     <div class="page-header">
       <div>
-        <p class="wizard__progress">${escapeHtml(t("brainstorm.resultEyebrow"))}</p>
+        <p class="wizard__progress">${escapeHtml(t("brainstorm.promptEyebrow"))}</p>
         <h1 class="page-title" tabindex="-1" data-ref="title">
-          ${escapeHtml(t("brainstorm.generatingTitle"))}
+          ${escapeHtml(t("brainstorm.promptTitle"))}
         </h1>
       </div>
       <button class="icon-button" type="button" data-action="exit"
@@ -729,134 +514,104 @@ function renderLoading(root, controller) {
       </button>
     </div>
 
-    <section class="brainstorm-card brainstorm-loading" role="status" aria-busy="true">
-      <div class="spinner" aria-hidden="true"></div>
-      <p class="brainstorm-loading__text">${escapeHtml(t("brainstorm.generatingText"))}</p>
-    </section>
-  `;
-
-  root.querySelector('[data-action="exit"]')?.addEventListener("click", () => {
-    controller.abort();
-    if (activeController === controller) activeController = null;
-    renderReady(root);
-  });
-
-  window.requestAnimationFrame(() => {
-    root.querySelector('[data-ref="title"]')?.focus();
-  });
-}
-
-function renderGenerationError(root, answers, error) {
-  const messageKey = GENERATION_ERROR_KEYS[error?.code] || "brainstorm.errorServer";
-
-  root.innerHTML = `
-    <div class="page-header">
-      <div>
-        <p class="wizard__progress">${escapeHtml(t("brainstorm.resultEyebrow"))}</p>
-        <h1 class="page-title" tabindex="-1" data-ref="title">
-          ${escapeHtml(t("brainstorm.errorTitle"))}
-        </h1>
-      </div>
-    </div>
-
-    <section class="brainstorm-card brainstorm-error" role="alert">
+    <section class="brainstorm-card">
       <div class="brainstorm-card__body">
-        <h2 class="brainstorm-card__title">${escapeHtml(t("brainstorm.errorTitle"))}</h2>
-        <p class="brainstorm-card__text">${escapeHtml(t(messageKey))}</p>
+        <p class="brainstorm-card__text">${escapeHtml(t("brainstorm.promptExplain"))}</p>
 
-        <div class="brainstorm-actions">
-          <button class="button" type="button" data-action="retry">
-            ${escapeHtml(t("brainstorm.tryAgain"))}
+        <div class="prompt-box">
+          <label class="field__label" for="brainstorm-prompt">
+            ${escapeHtml(t("brainstorm.promptLabel"))}
+          </label>
+          <textarea class="textarea prompt-box__text" id="brainstorm-prompt"
+            data-ref="prompt" rows="14" readonly>${escapeHtml(prompt)}</textarea>
+          <div class="prompt-box__actions">
+            <button class="button button--secondary" type="button" data-action="copy">
+              ${escapeHtml(t("brainstorm.copyBtn"))}
+            </button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="field__label">${escapeHtml(t("brainstorm.pasteLabel"))}</span>
+          <textarea class="textarea" data-ref="paste" rows="10"
+            placeholder="${escapeHtml(t("brainstorm.pastePlaceholder"))}"></textarea>
+        </label>
+
+        <p class="form-error" data-ref="error" role="alert" hidden></p>
+
+        <div data-ref="preview">
+          <section class="prompt-preview prompt-preview--empty">
+            <p class="brainstorm-card__text">${escapeHtml(t("brainstorm.previewEmpty"))}</p>
+          </section>
+        </div>
+
+        <div class="brainstorm-actions brainstorm-actions--split">
+          <button class="button" type="button" data-action="save" disabled>
+            ${escapeHtml(t("brainstorm.saveBtn"))}
           </button>
-          <button class="button button--secondary" type="button" data-action="change">
-            ${escapeHtml(t("brainstorm.changeAnswers"))}
-          </button>
+          <div class="brainstorm-actions">
+            <button class="button button--secondary" type="button" data-action="change">
+              ${escapeHtml(t("brainstorm.changeAnswers"))}
+            </button>
+            <button class="button button--ghost" type="button" data-action="start-over">
+              ${escapeHtml(t("brainstorm.startOverBtn"))}
+            </button>
+          </div>
         </div>
       </div>
     </section>
   `;
 
-  root.querySelector('[data-action="retry"]')?.addEventListener("click", () => {
-    runGeneration(root, answers);
+  const paste = root.querySelector('[data-ref="paste"]');
+  const preview = root.querySelector('[data-ref="preview"]');
+  const error = root.querySelector('[data-ref="error"]');
+  const saveButton = root.querySelector('[data-action="save"]');
+
+  const updatePreview = () => {
+    const raw = String(paste?.value || "").trim();
+
+    if (!raw) {
+      preview.innerHTML = `
+        <section class="prompt-preview prompt-preview--empty">
+          <p class="brainstorm-card__text">${escapeHtml(t("brainstorm.previewEmpty"))}</p>
+        </section>
+      `;
+      saveButton.disabled = true;
+      error.hidden = true;
+      return;
+    }
+
+    const recipe = parseRecipeText(stripCodeFences(raw));
+    const valid = Boolean(recipe.title.trim());
+
+    preview.innerHTML = valid
+      ? renderPreview(recipe)
+      : `
+        <section class="prompt-preview prompt-preview--empty">
+          <p class="brainstorm-card__text">${escapeHtml(t("brainstorm.previewEmpty"))}</p>
+        </section>
+      `;
+    saveButton.disabled = !valid;
+    error.textContent = t("brainstorm.missingTitle");
+    error.hidden = valid;
+  };
+
+  paste?.addEventListener("input", updatePreview);
+
+  root.querySelector('[data-action="copy"]')?.addEventListener("click", () => {
+    copyPrompt(root);
+  });
+
+  saveButton?.addEventListener("click", () => {
+    savePromptRecipe(root, answers, saveButton);
   });
 
   root.querySelector('[data-action="change"]')?.addEventListener("click", () => {
     openWizard(root, answers);
   });
 
-  window.requestAnimationFrame(() => {
-    root.querySelector('[data-ref="title"]')?.focus();
-  });
-}
-
-function renderResult(root, answers, recipe) {
-  const ingredients = recipeLines(recipe.ingredients);
-  const steps = recipeLines(recipe.steps);
-
-  root.innerHTML = `
-    <div class="page-header">
-      <div>
-        <p class="wizard__progress">${escapeHtml(t("brainstorm.resultEyebrow"))}</p>
-        <h1 class="page-title" tabindex="-1" data-ref="title">
-          ${escapeHtml(t("brainstorm.resultTitle"))}
-        </h1>
-      </div>
-      <button class="icon-button" type="button" data-action="reject"
-              aria-label="${escapeHtml(t("brainstorm.rejectBtn"))}">
-        ${icon("close")}
-      </button>
-    </div>
-
-    <section class="brainstorm-card brainstorm-result">
-      <div class="brainstorm-card__body">
-        <div>
-          <h2 class="brainstorm-result__title">${escapeHtml(recipe.title)}</h2>
-          <p class="brainstorm-result__meta">
-            ${escapeHtml(recipe.category)} · ${escapeHtml(recipe.subcategory)}
-          </p>
-        </div>
-
-        <div class="brainstorm-result__section">
-          <h3 class="brainstorm-result__heading">${escapeHtml(t("brainstorm.ingredientsLabel"))}</h3>
-          <ul class="brainstorm-result__list">
-            ${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
-          </ul>
-        </div>
-
-        <div class="brainstorm-result__section">
-          <h3 class="brainstorm-result__heading">${escapeHtml(t("brainstorm.stepsLabel"))}</h3>
-          <ol class="brainstorm-result__list">
-            ${steps.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
-          </ol>
-        </div>
-
-        <div class="brainstorm-actions brainstorm-result__actions">
-          <button class="button" type="button" data-action="add">
-            ${escapeHtml(t("brainstorm.addBtn"))}
-          </button>
-          <button class="button button--secondary" type="button" data-action="retry">
-            ${escapeHtml(t("brainstorm.retryInputBtn"))}
-          </button>
-          <button class="button button--ghost" type="button" data-action="reject">
-            ${escapeHtml(t("brainstorm.rejectBtn"))}
-          </button>
-        </div>
-      </div>
-    </section>
-  `;
-
-  root.querySelector('[data-action="add"]')?.addEventListener("click", (event) => {
-    addRecipeToPantry(root, recipe, event.currentTarget);
-  });
-
-  root.querySelector('[data-action="retry"]')?.addEventListener("click", () => {
-    pendingResult = null;
-    openWizard(root, answers);
-  });
-
-  root.querySelectorAll('[data-action="reject"]').forEach((button) => {
+  root.querySelectorAll('[data-action="start-over"], [data-action="exit"]').forEach((button) => {
     button.addEventListener("click", () => {
-      pendingResult = null;
       renderReady(root);
     });
   });
@@ -864,6 +619,30 @@ function renderResult(root, answers, recipe) {
   window.requestAnimationFrame(() => {
     root.querySelector('[data-ref="title"]')?.focus();
   });
+}
+
+async function copyPrompt(root) {
+  const textarea = root.querySelector('[data-ref="prompt"]');
+  if (!textarea) return;
+
+  try {
+    await navigator.clipboard.writeText(textarea.value);
+    toast(t("brainstorm.copiedToast"), "success");
+  } catch {
+    textarea.focus();
+    textarea.select();
+
+    try {
+      if (document.execCommand("copy")) {
+        toast(t("brainstorm.copiedToast"), "success");
+        return;
+      }
+    } catch {
+      /* Fall through. */
+    }
+
+    toast(t("brainstorm.copyFailedToast"), "error");
+  }
 }
 
 function ensureCategory(name) {
@@ -892,13 +671,28 @@ function ensureSubcategory(category, name) {
   return value;
 }
 
-function addRecipeToPantry(root, recipe, button) {
+function savePromptRecipe(root, answers, button) {
   if (button?.disabled) return;
   if (button) button.disabled = true;
 
+  const paste = root.querySelector('[data-ref="paste"]');
+  const recipe = parseRecipeText(stripCodeFences(paste?.value || ""));
+
+  if (!recipe.title.trim()) {
+    if (button) button.disabled = false;
+    toast(t("brainstorm.missingTitle"), "error");
+    return;
+  }
+
   const category = ensureCategory(recipe.category);
   const subcategory = ensureSubcategory(category, recipe.subcategory);
-  const saved = store.addRecipe({ ...recipe, category, subcategory });
+  const saved = store.addRecipe({
+    title: recipe.title,
+    category,
+    subcategory,
+    ingredients: recipe.ingredients,
+    steps: recipe.steps
+  });
 
   if (!saved) {
     if (button) button.disabled = false;
@@ -907,30 +701,7 @@ function addRecipeToPantry(root, recipe, button) {
   }
 
   toast(t("brainstorm.addedToast"), "success");
-  pendingResult = null;
   renderReady(root);
-}
-
-async function runGeneration(root, answers) {
-  if (activeController) return;
-
-  const controller = new AbortController();
-  activeController = controller;
-  renderLoading(root, controller);
-
-  try {
-    const recipe = await generateRecipe(answers, store.getCategories(), {
-      signal: controller.signal
-    });
-    if (controller.signal.aborted) return;
-    pendingResult = { answers, recipe };
-    if (mountedRoot?.isConnected) renderResult(mountedRoot, answers, recipe);
-  } catch (error) {
-    if (controller.signal.aborted || error?.code === "aborted") return;
-    if (mountedRoot?.isConnected) renderGenerationError(mountedRoot, answers, error);
-  } finally {
-    if (activeController === controller) activeController = null;
-  }
 }
 
 function openWizard(root, initialAnswers) {
@@ -980,8 +751,8 @@ function openWizard(root, initialAnswers) {
               ${escapeHtml(t("common.back"))}
             </button>
             ${isSummary
-              ? `<button class="button" type="button" data-action="generate">
-                  ${escapeHtml(t("brainstorm.generateBtn"))}
+              ? `<button class="button" type="button" data-action="copy-prompt">
+                  ${escapeHtml(t("brainstorm.copyPromptBtn"))}
                 </button>`
               : `<button class="button" type="button" data-action="next"
                   ${isStepValid(step, answers) ? "" : "disabled"}>
@@ -999,8 +770,8 @@ function openWizard(root, initialAnswers) {
     root.querySelector('[data-action="back"]')?.addEventListener("click", goBack);
 
     if (isSummary) {
-      root.querySelector('[data-action="generate"]')?.addEventListener("click", () => {
-        runGeneration(root, answers);
+      root.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => {
+        renderPrompt(root, answers);
       });
     } else {
       root.querySelector('[data-action="next"]')?.addEventListener("click", goNext);

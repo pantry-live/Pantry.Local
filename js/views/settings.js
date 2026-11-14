@@ -7,14 +7,12 @@ import { escapeHtml, icon, confirmDialog, toast } from "../ui.js";
 import { exportRecipes } from "../exchange.js";
 import { importFile } from "../importer.js";
 import { openManual } from "../manual.js";
-import { hasConnection, clearConnectionCode } from "../brainstorm-api.js";
 import * as store from "../store.js";
 
 export function render(root, ctx) {
   ctx.setBack(() => ctx.closeSettings());
 
   const language = store.getSettings().language || "en";
-  const brainstormConnected = hasConnection();
 
   root.innerHTML = `
     <div class="page-header">
@@ -83,35 +81,6 @@ export function render(root, ctx) {
         </button>
       </section>
 
-      <section class="settings-card" aria-label="${escapeHtml(t("settings.brainstormTitle"))}">
-        <div class="settings-row">
-          <div class="settings-row__text">
-            <div class="settings-row__title">${escapeHtml(t("settings.brainstormTitle"))}</div>
-            <div class="settings-row__desc">
-              ${escapeHtml(t(brainstormConnected
-                ? "settings.brainstormConnectedHint"
-                : "settings.brainstormNotConnectedHint"))}
-            </div>
-          </div>
-          <div class="settings-row__control">
-            <span class="badge${brainstormConnected ? " badge--connected" : ""}">${escapeHtml(t(brainstormConnected
-              ? "settings.brainstormConnected"
-              : "settings.brainstormNotConnected"))}</span>
-          </div>
-        </div>
-
-        ${brainstormConnected ? `
-          <button class="settings-row settings-row--button settings-row--danger"
-            type="button" data-action="disconnect-brainstorm">
-            <span class="settings-row__text">
-              <span class="settings-row__title">${escapeHtml(t("settings.disconnectBrainstorm"))}</span>
-              <span class="settings-row__desc">${escapeHtml(t("settings.disconnectBrainstormHint"))}</span>
-            </span>
-            <span class="settings-row__control" aria-hidden="true">${icon("trash")}</span>
-          </button>
-        ` : ""}
-      </section>
-
       <section class="settings-card" aria-label="${escapeHtml(t("settings.deleteAllData"))}">
         <button class="settings-row settings-row--button settings-row--danger"
           type="button" data-action="delete-all">
@@ -165,32 +134,10 @@ export function render(root, ctx) {
       handleExport();
     } else if (action === "import") {
       importInput?.click();
-    } else if (action === "disconnect-brainstorm") {
-      handleDisconnectBrainstorm(ctx);
     } else if (action === "delete-all") {
       handleDeleteAll();
     }
   });
-}
-
-async function handleDisconnectBrainstorm(ctx) {
-  const confirmed = await confirmDialog({
-    title: t("settings.disconnectBrainstormTitle"),
-    message: t("settings.disconnectBrainstormText"),
-    confirmLabel: t("settings.disconnectBrainstorm"),
-    cancelLabel: t("common.cancel"),
-    danger: true
-  });
-
-  if (!confirmed) return;
-
-  if (!clearConnectionCode()) {
-    toast(t("common.error"), "error");
-    return;
-  }
-
-  toast(t("settings.brainstormDisconnected"), "success");
-  ctx.rerender();
 }
 
 function handleExport() {

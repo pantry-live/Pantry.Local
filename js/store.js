@@ -13,7 +13,6 @@ import {
   t
 } from "./i18n.js";
 import { toast } from "./ui.js";
-import { clearConnectionCode } from "./brainstorm-api.js";
 
 const DATA_VERSION = 1;
 const SAVE_DELAY = 600;
@@ -559,7 +558,6 @@ export function clearLocalData() {
 
   try {
     localStorage.removeItem(STORAGE_KEY);
-    clearConnectionCode();
     state = null;
     storageWarned = false;
     return true;
