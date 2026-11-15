@@ -3,7 +3,7 @@
  *
  * Recognition is started only by an explicit microphone tap. If the browser
  * stops recognition after a pause, the controller restarts it while the user
- * still wants voice control. Voice commands only move forward.
+  * still wants voice control. Voice commands move forward or back.
  */
 
 const SpeechRecognition = typeof window !== "undefined"
@@ -45,7 +45,9 @@ function transcriptMatches(transcript, commands) {
 export function createSpeechController({
   lang = "nl-NL",
   commands = [],
+  backCommands = [],
   onCommand,
+  onBack,
   onStateChange,
   onError
 } = {}) {
@@ -93,19 +95,23 @@ export function createSpeechController({
         transcript += event.results[index]?.[0]?.transcript || "";
       }
 
-      if (transcriptMatches(transcript, commands)) {
-        cooldownUntil = Date.now() + 900;
-        // End this session so the next phrase starts with an empty result list.
-        try {
-          instance.abort();
-        } catch {
-          /* already stopped */
-        }
-        try {
-          onCommand?.();
-        } catch (error) {
-          console.error(error);
-        }
+      const direction = transcriptMatches(transcript, backCommands) ? "back"
+        : transcriptMatches(transcript, commands) ? "forward"
+          : null;
+      if (!direction) return;
+
+      cooldownUntil = Date.now() + 900;
+      // End this session so the next phrase starts with an empty result list.
+      try {
+        instance.abort();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        if (direction === "back") onBack?.();
+        else onCommand?.();
+      } catch (error) {
+        console.error(error);
       }
     };
 
