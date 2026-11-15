@@ -29,6 +29,16 @@ const VOICE_COMMANDS = {
   en: ["next", "continue", "forward", "done", "volgende"]
 };
 
+const BACK_COMMANDS = {
+  nl: ["vorige", "terug", "back", "previous"],
+  en: ["back", "previous", "go back"],
+  de: ["zurück", "vorher", "back", "previous"]
+};
+
+export function getBackCommands(language = current) {
+  return BACK_COMMANDS[normalizeLanguage(language)] || BACK_COMMANDS.en;
+}
+
 /* -------------------------------------------------------------------------
  * Strings
  * ---------------------------------------------------------------------- */
