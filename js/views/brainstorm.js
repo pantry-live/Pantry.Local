@@ -11,13 +11,23 @@ import { parseRecipeText } from "../importer.js";
 import { buildChatPrompt, stripCodeFences } from "../brainstorm-prompt.js";
 import * as store from "../store.js";
 
+let activeController = null;
+let mountedRoot = null;
+let pendingResult = null;
+let wizardDraft = null; // { step, answers } while the wizard is open
+
 export function render(root) {
-  renderReady(root);
+  if (wizardDraft) {
+    openWizard(root, wizardDraft.answers, wizardDraft.step);
+  } else {
+    renderReady(root);
+  }
 }
 
 /* ------------------------------- Ready ---------------------------------- */
 
 function renderReady(root) {
+  wizardDraft = null;
   root.innerHTML = `
     <div class="page-header">
       <h1 class="page-title">${escapeHtml(t("brainstorm.title"))}</h1>
@@ -701,12 +711,13 @@ function savePromptRecipe(root, answers, button) {
   }
 
   toast(t("brainstorm.addedToast"), "success");
+  pendingResult = null;
   renderReady(root);
 }
 
-function openWizard(root, initialAnswers) {
+function openWizard(root, initialAnswers, initialStep = 1) {
   const answers = createAnswers(initialAnswers);
-  let step = 1;
+  let step = initialStep;
 
   const goNext = () => {
     if (!isStepValid(step, answers) || step >= TOTAL_STEPS) return;
@@ -724,6 +735,7 @@ function openWizard(root, initialAnswers) {
   };
 
   function paint() {
+    wizardDraft = { step, answers };
     const isSummary = step === TOTAL_STEPS;
 
     root.innerHTML = `
