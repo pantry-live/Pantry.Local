@@ -7,6 +7,7 @@
  */
 
 import {
+  getBackCommands,
   getLanguageMeta,
   getVoiceCommands,
   servingsLabel,
@@ -1286,7 +1287,9 @@ function startCooking() {
     voice = createSpeechController({
       lang: getLanguageMeta().speech,
       commands: getVoiceCommands(),
+      backCommands: getBackCommands(),
       onCommand: advance,
+      onBack: previous,
       onStateChange: (voiceState) => {
         voiceListening = voiceState === "listening";
         updateMic();
