@@ -28,6 +28,7 @@ const elements = {
   app: document.getElementById("app"),
   view: document.getElementById("view"),
   headerBack: document.getElementById("header-back"),
+  homeButton: document.getElementById("header-home"),
   settingsButton: document.getElementById("open-settings"),
   tabbar: document.querySelector(".tabbar"),
   tabButtons: [...document.querySelectorAll("[data-tab]")]
@@ -289,6 +290,10 @@ function bindEvents() {
 
   elements.headerBack?.addEventListener("click", () => {
     if (backHandler) backHandler();
+  });
+
+  elements.homeButton?.addEventListener("click", () => {
+    showTab("cooking");
   });
 
   elements.settingsButton?.addEventListener("click", openSettings);

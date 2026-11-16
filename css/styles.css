@@ -326,6 +326,12 @@ a {
   font-size: 17px;
   font-weight: 680;
   letter-spacing: -0.02em;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .app-header__hat {
